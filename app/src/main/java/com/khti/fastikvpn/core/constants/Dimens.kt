@@ -56,4 +56,9 @@ object Dimens {
     val SpacingL = 24.dp
     val SpacingXl = 32.dp
     val ScreenPadding = 20.dp
+
+    // Порядок важен: размеры считаются от верхних значений
+    val IpPingGap = SpacingS
+    val PingBadgeWidth = BottomBarWidth - IpPingGap - IpCardWidth
+    val ActionIconSize = 20.dp
 }

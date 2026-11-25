@@ -35,7 +35,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,15 +50,19 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.khti.fastikvpn.core.constants.Dimens
+import com.khti.fastikvpn.core.model.ConnectionState
 import com.khti.fastikvpn.core.model.ThemeMode
 import com.khti.fastikvpn.core.theme.FastikTheme
 import com.khti.fastikvpn.core.theme.FastikVpnTheme
 import com.khti.fastikvpn.ui.mainscreen.MainViewModel
+import com.khti.fastikvpn.ui.screens.home.HomeUiState
+import com.khti.fastikvpn.ui.screens.home.HomeViewModel
+import com.khti.fastikvpn.ui.screens.home.components.ConnectionStatusText
+import com.khti.fastikvpn.ui.screens.home.components.IpInfoRow
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -91,39 +94,20 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainContent(onThemeSelected: (ThemeMode) -> Unit) {
     var currentScreen by remember { mutableStateOf(0) }
-    var isConnecting by remember { mutableStateOf(false) }
-    var isConnected by remember { mutableStateOf(false) }
 
-    val scope = rememberCoroutineScope()
-
-    // Логика запуска подключения с защитой от повторного нажатия
-    val startConnecting = {
-        if (!isConnecting && !isConnected) {
-            isConnecting = true
-            scope.launch {
-                delay(2000) // Имитация подключения (2 секунды)
-                isConnecting = false
-                isConnected = true
-            }
-        }
-    }
+    // Состояние экрана живёт в Activity
+    val homeViewModel: HomeViewModel = hiltViewModel()
+    val homeState by homeViewModel.uiState.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize()) {
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (currentScreen) {
                 0 -> HomeScreen(
-                    isConnecting = isConnecting,
-                    isConnected = isConnected,
-                    onClickCircle = {
-                        if (isConnecting) {
-                            // Если уже идет загрузка — игнорируем клик
-                        } else if (isConnected) {
-                            isConnected = false // Отключаем
-                        } else {
-                            startConnecting() // Включаем
-                        }
-                    }
+                    state = homeState,
+                    onConnectClick = homeViewModel::onConnectClick,
+                    onIpCardClick = homeViewModel::onIpCardClick,
+                    onPingRefreshClick = homeViewModel::onPingRefreshClick
                 )
                 1 -> SettingsScreen(onThemeSelected)
                 2 -> ProfileScreen()
@@ -193,9 +177,10 @@ private fun AnimatedNavButton(
 
 @Composable
 private fun HomeScreen(
-    isConnecting: Boolean,
-    isConnected: Boolean,
-    onClickCircle: () -> Unit
+    state: HomeUiState,
+    onConnectClick: () -> Unit,
+    onIpCardClick: () -> Unit,
+    onPingRefreshClick: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize().padding(Dimens.ScreenPadding)) {
         Text(
@@ -218,10 +203,12 @@ private fun HomeScreen(
                     .size(Dimens.FirstCircle)
                     .clip(CircleShape)
                     .background(Brush.linearGradient(listOf(FastikTheme.colors.connectGradientStart, FastikTheme.colors.connectGradientEnd)))
-                    .clickable { onClickCircle() },
+                    .clickable(enabled = state.connectionState != ConnectionState.CONNECTING) {
+                        onConnectClick()
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                if (isConnecting) {
+                if (state.connectionState == ConnectionState.CONNECTING) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(64.dp))
                 } else {
                     Image(
@@ -234,17 +221,27 @@ private fun HomeScreen(
                 }
             }
 
-            Text(
-                text = when {
-                    isConnecting -> "Подключение..."
-                    isConnected -> "Защищено"
-                    else -> "Нажмите для подключения"
-                },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
+            ConnectionStatusText(
+                connectionState = state.connectionState,
                 modifier = Modifier.padding(top = 24.dp)
             )
         }
+
+        // Карточка IP и пинга
+        IpInfoRow(
+            ipAddress = state.ipAddress,
+            isIpLoading = state.isIpLoading,
+            pingMs = state.pingMs,
+            isPingLoading = state.isPingLoading,
+            isPingVisible = state.isPingVisible,
+            // Обновлять пинг можно, только когда VPN включён
+            canRefreshPing = state.connectionState == ConnectionState.CONNECTED,
+            onCardClick = onIpCardClick,
+            onRefreshPingClick = onPingRefreshClick,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = Dimens.SpacingM)
+        )
     }
 }
 
